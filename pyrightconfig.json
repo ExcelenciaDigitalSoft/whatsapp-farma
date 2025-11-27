@@ -1,0 +1,22 @@
+{
+  "venvPath": "/root/.cache/pypoetry/virtualenvs",
+  "venv": "whatsapp-pharmacy-assistant-gQyyCrii-py3.11",
+  "include": [
+    "app",
+    "tests",
+    "alembic"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/.mypy_cache",
+    "**/node_modules",
+    "**/.venv",
+    "**/htmlcov"
+  ],
+  "typeCheckingMode": "basic",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false,
+  "pythonVersion": "3.11",
+  "pythonPlatform": "Linux"
+}

@@ -1,0 +1,123 @@
+version: '3.8'
+
+services:
+  # PostgreSQL - Base de datos principal para transacciones
+  postgres:
+    image: postgres:16-alpine
+    container_name: pharmacy_postgres
+    environment:
+      POSTGRES_DB: pharmacy_db
+      POSTGRES_USER: pharmacy_user
+      POSTGRES_PASSWORD: pharmacy_pass_2024
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pharmacy_user -d pharmacy_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pharmacy_network
+
+  # MongoDB - Base de datos para chat history y logs
+  mongo:
+    image: mongo:7
+    container_name: pharmacy_mongo
+    environment:
+      MONGO_INITDB_DATABASE: pharmacy_chat
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pharmacy_network
+
+  # Redis - Cache y rate limiting
+  redis:
+    image: redis:7-alpine
+    container_name: pharmacy_redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pharmacy_network
+
+  # FastAPI Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pharmacy_api
+    environment:
+      # Database URLs
+      DATABASE_URL: postgresql+asyncpg://pharmacy_user:pharmacy_pass_2024@postgres:5432/pharmacy_db
+      MONGODB_URI: mongodb://mongo:27017/
+      MONGODB_DATABASE_NAME: pharmacy_chat
+      MONGODB_COLLECTION_NAME: chat_messages
+      REDIS_URL: redis://redis:6379/0
+
+      # Application Settings
+      SECRET_KEY: ${SECRET_KEY:-change-this-secret-key-in-production}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-true}
+
+      # WhatsApp (Chattigo)
+      CHATTIGO_API_URL: ${CHATTIGO_API_URL}
+      CHATTIGO_AUTH_TOKEN: ${CHATTIGO_AUTH_TOKEN}
+      CHATTIGO_WHATSAPP_NUMBER: ${CHATTIGO_WHATSAPP_NUMBER}
+
+      # Mercado Pago
+      MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN}
+      MERCADOPAGO_PUBLIC_KEY: ${MERCADOPAGO_PUBLIC_KEY}
+      MERCADOPAGO_WEBHOOK_SECRET: ${MERCADOPAGO_WEBHOOK_SECRET:-}
+
+      # OpenAI (Optional - for general queries)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+      # PDF Storage
+      PDF_STORAGE_PATH: /app/invoices
+
+    ports:
+      - "3019:3019"
+    volumes:
+      - ./app:/app/app
+      - invoice_pdfs:/app/invoices
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - pharmacy_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  mongo_data:
+    driver: local
+  redis_data:
+    driver: local
+  invoice_pdfs:
+    driver: local
+
+networks:
+  pharmacy_network:
+    driver: bridge
