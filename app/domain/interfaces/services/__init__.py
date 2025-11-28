@@ -6,6 +6,7 @@ from .base import (
     IPaymentGateway,
     IDocumentGenerator,
 )
+from .plex import IPlexService
 
 __all__ = [
     "IDomainService",
@@ -13,4 +14,5 @@ __all__ = [
     "INotificationService",
     "IPaymentGateway",
     "IDocumentGenerator",
+    "IPlexService",
 ]

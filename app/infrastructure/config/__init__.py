@@ -7,6 +7,7 @@ from .payment import PaymentConfig
 from .ai import AIConfig
 from .security import SecurityConfig
 from .storage import StorageConfig
+from .plex import PlexConfig
 
 __all__ = [
     "Settings",
@@ -19,4 +20,5 @@ __all__ = [
     "AIConfig",
     "SecurityConfig",
     "StorageConfig",
+    "PlexConfig",
 ]

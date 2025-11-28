@@ -65,6 +65,12 @@ class ServiceUnavailableError(DomainException):
     pass
 
 
+class ExternalServiceError(DomainException):
+    """Raised when an external integration returns an error response."""
+
+    pass
+
+
 class PaymentGatewayError(DomainException):
     """Raised when payment gateway operations fail."""
 
@@ -87,6 +93,7 @@ __all__ = [
     "InsufficientFundsError",
     "InvalidStateTransitionError",
     "ServiceUnavailableError",
+    "ExternalServiceError",
     "PaymentGatewayError",
     "DocumentGenerationError",
 ]

@@ -1,0 +1,189 @@
+ (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
+diff --git a/INTEGRATION_GUIDE.md b/INTEGRATION_GUIDE.md
+index c087d0656293f0b5577ec4a9bac958c35aab881e..3d884f92cb84ffaf50443e8fa31f3dbd95760cc7 100644
+--- a/INTEGRATION_GUIDE.md
++++ b/INTEGRATION_GUIDE.md
+@@ -102,95 +102,171 @@ Content-Type: application/json
+ }
+ ```
+ 
+ #### Obtener Cliente
+ 
+ ```bash
+ GET /api/v1/clients/{client_id}
+ ```
+ 
+ ### 3. Manejo de Errores
+ 
+ Los endpoints retornan errores HTTP estándar:
+ 
+ - **400 Bad Request**: Errores de validación o reglas de negocio
+ - **404 Not Found**: Entidad no encontrada
+ - **500 Internal Server Error**: Errores del servidor
+ 
+ Ejemplo de error:
+ 
+ ```json
+ {
+   "detail": "Client with phone='+54 9 11 1234 5678' already exists"
+ }
+ ```
+ 
+-### 4. Beneficios de la Nueva Arquitectura
++### 4. Beneficios de la Nueva Arquitectura
+ 
+ ✅ **Inyección de Dependencias Automática**
+ - FastAPI maneja toda la inyección mediante `Depends()`
+ - No necesitas instanciar manualmente repositorios o use cases
+ 
+ ✅ **Validación Type-Safe**
+ - Pydantic valida requests automáticamente
+ - Domain valida reglas de negocio
+ 
+ ✅ **Testabilidad Perfecta**
+ ```python
+ # Test example
+ async def test_create_client():
+     # Mock use case
+     mock_use_case = Mock(spec=CreateClientUseCase)
+     mock_use_case.execute.return_value = client_dto
+ 
+     # Inject mock
+     response = await create_client(request, use_case=mock_use_case)
+ 
+     assert response.id == expected_id
+ ```
+ 
+-✅ **Separación de Capas**
+-- Presentation: Validación HTTP, serialización
+-- Application: Orquestación, use cases
+-- Domain: Reglas de negocio puras
+-- Infrastructure: Persistencia, APIs externas
+-
+-### 5. Migración Gradual
++✅ **Separación de Capas**
++- Presentation: Validación HTTP, serialización
++- Application: Orquestación, use cases
++- Domain: Reglas de negocio puras
++- Infrastructure: Persistencia, APIs externas
++
++## Integración con Plex 25 (API de gestión)
++
++### 1. Configuración
++
++Agrega las siguientes variables de entorno en `.env` para habilitar el cliente HTTP con autenticación Basic:
++
++```env
++PLEX_BASE_URL=https://plex.example.com
++PLEX_USERNAME=usuario
++PLEX_PASSWORD=contraseña
++# Opcionales
++PLEX_GET_PREFIX=/ws
++PLEX_POST_ENDPOINT=/ws
++PLEX_TIMEOUT=30
++PLEX_VERIFY_SSL=true
++```
++
++### 2. Uso del servicio
++
++`PlexService` entrega métodos listos para las acciones más frecuentes (ventas, clientes, productos, stock) y helpers genéricos para el resto de las tablas de consulta.
++
++```python
++from app.services.plex_service import PlexService
++
++plex = PlexService()
++
++# Verificar disponibilidad (usa /ws/usuarios por defecto)
++is_up = await plex.check_availability()
++
++# Consultar ventas: sucursal obligatoria + filtros opcionales
++ventas = await plex.get_sales(branch_id="1", emission_date="20250115")
++
++# Consultar clientes
++clientes = await plex.get_clients(cuit="20304050607")
++
++# Consultar productos con filtros y paginado
++productos = await plex.get_products(search="ibuprofeno", page=1, page_size=50)
++
++# Consultar stock por sucursal
++stock = await plex.get_stock(branch_id="1", page=1)
++
++# Consumir tablas/recursos de catálogo genéricos
++tarjetas = await plex.get_catalog("tarjetas")
++provincias = await plex.get_catalog("provincias")
++
++# Ejecutar acciones POST usando el sobre estándar
++respuesta = await plex.call_post_action("presentaciones_recetas", {"sucursal": "1"})
++```
++
++El adaptador `PlexAdapter` se encarga de construir las rutas (`/ws/<recurso>`), enviar las credenciales Basic y validar el `respcode` del payload. En caso de error se lanzan excepciones de dominio (`ExternalServiceError` o `ServiceUnavailableError`) listas para ser manejadas en la capa de aplicación o presentación.
++
++#### Mapa rápido de endpoints Plex → helpers disponibles
++
++| Recurso Plex | Método `PlexService` | Parámetros principales |
++| --- | --- | --- |
++| `ventas` | `get_sales(branch_id, emission_date=None, from_id=None, part_id=None)` | `sucursal`, `fecha`, `id`, `idparte` |
++| `clientes` | `get_clients(client_id=None, cuit=None, from_date=None)` | `id`, `cuit`, `fecha_desde` |
++| `productos` | `get_products(search=None, change_date=None, product_ids=None, category_ids=None, lab_id=None, page=None, page_size=None)` | `busqueda`, `fechacambio`, `idproducto`, `idrubro`, `idsubrubro`, `idlaboratorio`, `paginanro`, `paginacant` |
++| `stock` | `get_stock(branch_id, page=None)` | `sucursal`, `pagina` |
++| Tablas de catálogo (ej. `tarjetas`, `provincias`, `drogas`, `rubros`, `laboratorios`, etc.) | `get_catalog("<tabla>")` | Sin parámetros |
++| Acciones POST (ej. `presentaciones_recetas`, `presentaciones_cobros`) | `call_post_action("<recurso>", payload_dict)` | Body en `content` dentro del envoltorio estándar |
++
++Si necesitas consumir otra tabla GET no listada, pasa el nombre exacto al helper `get_catalog` y el adaptador construirá la URL automáticamente (`/ws/<nombre>`).
++
++### 3. Consideraciones de configuración
++
++- La integración es **opcional**: si no defines `PLEX_BASE_URL`, `PLEX_USERNAME` ni `PLEX_PASSWORD`, la validación no marcará errores.
++- Si defines solo parte de las credenciales, la configuración se considerará *parcial* y obtendrás una advertencia para completarla.
++- Usa `PLEX_TIMEOUT` y `PLEX_VERIFY_SSL=false` solo si tu entorno requiere ajustes de red o certificados propios.
++
++#### Solución de problemas frecuentes
++
++- **Estado `plex_status` = `partial` en el summary de configuración**: revisa que `PLEX_BASE_URL`, `PLEX_USERNAME` y `PLEX_PASSWORD` estén todos presentes. Un valor faltante activa el estado parcial y deshabilita las llamadas para evitar errores de autenticación.
++- **Errores de certificado en entornos de pruebas**: establece `PLEX_VERIFY_SSL=false` únicamente en entornos no productivos.
++- **Tiempo de espera excedido**: incrementa `PLEX_TIMEOUT` si la red agrega latencia adicional.
++
++### 4. Migración Gradual
+ 
+ Puedes mantener los endpoints legacy y nuevos simultáneamente:
+ 
+ ```python
+ # Legacy endpoints
+ app.include_router(legacy_router, prefix="/api/legacy/v1")
+ 
+ # New Clean Architecture endpoints
+ app.include_router(api_router, prefix="/api/v1")
+ ```
+ 
+ Esto permite migrar gradualmente sin romper clientes existentes.
+ 
+-### 6. Próximos Pasos
++### 5. Próximos Pasos
+ 
+ 1. **Migrar más endpoints**: Transactions, Payments, etc.
+ 2. **Implementar TransactionRepository**: Completar infraestructura
+ 3. **Agregar middleware de autenticación**: Integrar con use cases
+ 4. **Implementar tests**: Unit, integration, E2E
+ 5. **Documentación automática**: OpenAPI/Swagger ya incluido
+ 
+ ## Comandos Útiles
+ 
+ ```bash
+ # Iniciar servidor
+ poetry run start
+ 
+ # Ejecutar tests
+ poetry run test
+ 
+ # Linting
+ poetry run lint
+ 
+ # Format code
+ poetry run format
+ 
+ # Type checking
+ poetry run typecheck
+ 
+ 
+EOF
+)
